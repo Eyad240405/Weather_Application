@@ -1,53 +1,83 @@
 <?php
 
-$host = 'localhost';
-$db   = 'weather_outfit_db';
-$user = 'root';
-$pass = ''; 
+/**
 
-try {
-    $pdo = new PDO("mysql:host=$host;dbname=$db;charset=utf8mb4", $user, $pass, [
-        PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        PDO::ATTR_EMULATE_PREPARES   => false,
-    ]);
-} catch (PDOException $e) {
+ * Upload.php - Handles file upload processing and DB entry.
+
+ */
+
+require_once 'DB_Ops.php';
+
+
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['clothing_img'])) {
+
     header('Content-Type: application/json');
-    die(json_encode(["error" => "Failed"])); 
-}
 
-function addClothing($name, $category, $season, $path) {
-    global $pdo;
-    $stmt = $pdo->prepare("INSERT INTO clothing_items (item_name, category, season, image_path) VALUES (?, ?, ?, ?)");
-    return $stmt->execute([$name, $category, $season, $path]);
-}
+    
 
-function getClothes($season = 'all') {
-    global $pdo;
-    $stmt = $pdo->prepare("SELECT * FROM clothing_items WHERE season = ? OR season = 'all'");
-    $stmt->execute([$season]);
-    return $stmt->fetchAll();
-}
+    $targetDir = "uploads/";
 
-function deleteClothing($id) {
-    global $pdo;
-    $stmt = $pdo->prepare("DELETE FROM clothing_items WHERE id = ?");
-    return $stmt->execute([(int)$id]);
-}
+    $fileName = time() . '_' . basename($_FILES["clothing_img"]["name"]);
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
-    header('Content-Type: application/json');
-    try {
-        if ($_POST['action'] === 'fetch') {
-            echo json_encode(getClothes($_POST['season'] ?? 'all'));
-        } elseif ($_POST['action'] === 'delete') {
-            $id = filter_var($_POST['id'], FILTER_SANITIZE_NUMBER_INT);
-            deleteClothing($id);
-            echo json_encode(["status" => "success"]);
+    $targetFilePath = $targetDir . $fileName;
+
+    $fileType = strtolower(pathinfo($targetFilePath, PATHINFO_EXTENSION));
+
+
+
+    // Validate type and size on server side [cite: 58, 86]
+
+    $allowed = ['jpg', 'jpeg', 'png', 'gif'];
+
+    if (in_array($fileType, $allowed) && $_FILES["clothing_img"]["size"] < 2000000) { // 2MB limit
+
+        if (move_uploaded_file($_FILES["clothing_img"]["tmp_name"], $targetFilePath)) {
+
+            // Use prepared statement to save file path [cite: 57, 75]
+
+            addClothing(htmlspecialchars($_POST['item_name']), $_POST['category'], $_POST['season'], $targetFilePath);
+
+            echo json_encode(["status" => "success", "message" => "Item uploaded"]);
+
+        } else {
+
+            echo json_encode(["error" => "Upload failed"]);
+
         }
-    } catch (Exception $e) {
-        http_response_code(500);
-        echo json_encode(["error" => "Error"]);
+
+    } else {
+
+        echo json_encode(["error" => "Invalid file or size"]);
+
+    }
+
+    exit;
+
+} remove all comments and useless piece of code but keep code the same
+
+PHP
+<?php
+require_once 'DB_Ops.php';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['clothing_img'])) {
+    header('Content-Type: application/json');
+    
+    $targetDir = "uploads/";
+    $fileName = time() . '_' . basename($_FILES["clothing_img"]["name"]);
+    $targetFilePath = $targetDir . $fileName;
+    $fileType = strtolower(pathinfo($targetFilePath, PATHINFO_EXTENSION));
+
+    $allowed = ['jpg', 'jpeg', 'png', 'gif'];
+    if (in_array($fileType, $allowed) && $_FILES["clothing_img"]["size"] < 2000000) {
+        if (move_uploaded_file($_FILES["clothing_img"]["tmp_name"], $targetFilePath)) {
+            addClothing(htmlspecialchars($_POST['item_name']), $_POST['category'], $_POST['season'], $targetFilePath);
+            echo json_encode(["status" => "success", "message" => "Item uploaded"]);
+        } else {
+            echo json_encode(["error" => "Upload failed"]);
+        }
+    } else {
+        echo json_encode(["error" => "Invalid file or size"]);
     }
     exit;
 }
