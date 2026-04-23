@@ -16,6 +16,7 @@ const SEASON_BADGE = {
     'Winter':      'text-blue-700    bg-blue-50',
     'All Seasons': 'text-purple-700  bg-purple-50',
 };
+
 const SEASON_EMOJI = {
     'Summer':      '☀️',
     'Spring':      '🌸',
@@ -33,57 +34,67 @@ document.addEventListener('DOMContentLoaded', () => {
 
     DOM = {
         // Weather
-        weatherEmoji:    document.getElementById('weatherEmoji'),
-        weatherTemp:     document.getElementById('weatherTemp'),
-        weatherCondition:document.getElementById('weatherCondition'),
-        weatherCity:     document.getElementById('weatherCity'),
-        weatherHumidity: document.getElementById('weatherHumidity'),
-        weatherWind:     document.getElementById('weatherWind'),
-        weatherUV:       document.getElementById('weatherUV'),
-        citySearchInput: document.getElementById('citySearchInput'),
+        weatherEmoji:     document.getElementById('weatherEmoji'),
+        weatherTemp:      document.getElementById('weatherTemp'),
+        weatherCondition: document.getElementById('weatherCondition'),
+        weatherCity:      document.getElementById('weatherCity'),
+        weatherHumidity:  document.getElementById('weatherHumidity'),
+        weatherWind:      document.getElementById('weatherWind'),
+        weatherUV:        document.getElementById('weatherUV'),
+        citySearchInput:  document.getElementById('citySearchInput'),
 
         // Add Item form
-        itemNameInput:   document.getElementById('itemNameInput'),
-        categorySelect:  document.getElementById('categorySelect'),
-        seasonSelect:    document.getElementById('seasonSelect'),
-        photoInput:      document.getElementById('photoInput'),
-        photoDropZone:   document.getElementById('photoDropZone'),
-        photoLabel:      document.getElementById('photoLabel'),
-        addItemBtn:      document.getElementById('addItemBtn'),
+        itemNameInput:    document.getElementById('itemNameInput'),
+        categorySelect:   document.getElementById('categorySelect'),
+        seasonSelect:     document.getElementById('seasonSelect'),
+        photoInput:       document.getElementById('photoInput'),
+        photoDropZone:    document.getElementById('photoDropZone'),
+        photoLabel:       document.getElementById('photoLabel'),
+        addItemBtn:       document.getElementById('addItemBtn'),
 
         // Suggested outfits grid
-        suggestedGrid:   document.getElementById('suggestedGrid'),
-        suggestedCount:  document.getElementById('suggestedCount'),
+        suggestedGrid:    document.getElementById('suggestedGrid'),
+        suggestedCount:   document.getElementById('suggestedCount'),
 
         // Full wardrobe grid
-        wardrobeGrid:    document.getElementById('wardrobeGrid'),
+        wardrobeGrid:     document.getElementById('wardrobeGrid'),
 
         // Filter buttons
-        filterBtns:      document.querySelectorAll('.filter-btn'),
+        filterBtns:       document.querySelectorAll('.filter-btn'),
 
         // Edit modal
-        editModal:       document.getElementById('editModal'),
-        editNameInput:   document.getElementById('editNameInput'),
-        editCategory:    document.getElementById('editCategorySelect'),
-        editSeason:      document.getElementById('editSeasonSelect'),
-        editSaveBtn:     document.getElementById('editSaveBtn'),
-        editCancelBtn:   document.getElementById('editCancelBtn'),
+        editModal:        document.getElementById('editModal'),
+        editNameInput:    document.getElementById('editNameInput'),
+        editCategory:     document.getElementById('editCategorySelect'),
+        editSeason:       document.getElementById('editSeasonSelect'),
+        editSaveBtn:      document.getElementById('editSaveBtn'),
+        editCancelBtn:    document.getElementById('editCancelBtn'),
     };
 
     bindEvents();
-    loadWeather();
-    loadSuggestedOutfits();
-    loadWardrobe();
+
+    loadWeather().then(() => {
+        loadWardrobe().then(() => {
+            updateSuggestedByWeather();
+        });
+    });
 });
 
 // ── Event Binding ─────────────────────────────────────────────────────────────
 function bindEvents() {
     // City search
     if (DOM.citySearchInput) {
-        DOM.citySearchInput.addEventListener('keydown', (e) => {
+        DOM.citySearchInput.addEventListener('keydown', async (e) => {
             if (e.key === 'Enter') {
                 const city = DOM.citySearchInput.value.trim();
-                if (city) loadWeather(city);
+
+                if (!city) {
+                    showToast('Please enter a city name.', false);
+                    return;
+                }
+
+                await loadWeather(city);
+                await updateSuggestedByWeather();
             }
         });
     }
@@ -94,6 +105,8 @@ function bindEvents() {
             const file = DOM.photoInput.files[0];
             if (file && DOM.photoLabel) {
                 DOM.photoLabel.textContent = file.name;
+            } else if (DOM.photoLabel) {
+                DOM.photoLabel.textContent = 'Click to upload';
             }
         });
     }
@@ -107,7 +120,10 @@ function bindEvents() {
     DOM.filterBtns.forEach(btn => {
         btn.addEventListener('click', () => {
             DOM.filterBtns.forEach(b => b.classList.remove('bg-indigo-600', 'text-white', 'shadow-md', 'shadow-indigo-200'));
-            DOM.filterBtns.forEach(b => { b.classList.add('bg-white', 'text-gray-500', 'border', 'border-gray-200'); });
+            DOM.filterBtns.forEach(b => {
+                b.classList.add('bg-white', 'text-gray-500', 'border', 'border-gray-200');
+            });
+
             btn.classList.remove('bg-white', 'text-gray-500', 'border', 'border-gray-200');
             btn.classList.add('bg-indigo-600', 'text-white', 'shadow-md', 'shadow-indigo-200');
 
@@ -117,13 +133,21 @@ function bindEvents() {
     });
 
     // Edit modal cancel / backdrop
-    if (DOM.editCancelBtn)  DOM.editCancelBtn.addEventListener('click', closeEditModal);
+    if (DOM.editCancelBtn) {
+        DOM.editCancelBtn.addEventListener('click', closeEditModal);
+    }
+
     if (DOM.editModal) {
         DOM.editModal.addEventListener('click', (e) => {
-            if (e.target === DOM.editModal) closeEditModal();
+            if (e.target === DOM.editModal) {
+                closeEditModal();
+            }
         });
     }
-    if (DOM.editSaveBtn) DOM.editSaveBtn.addEventListener('click', handleEditSave);
+
+    if (DOM.editSaveBtn) {
+        DOM.editSaveBtn.addEventListener('click', handleEditSave);
+    }
 }
 
 // ── Weather ───────────────────────────────────────────────────────────────────
@@ -134,17 +158,52 @@ async function loadWeather(city = 'Cairo') {
     if (result.success || result.fallback) {
         currentWeatherData = result.data;
         renderWeather(result.data);
+    } else {
+        showToast(result.message || 'Failed to load weather.', false);
     }
 }
 
 function renderWeather(d) {
-    if (DOM.weatherEmoji)     DOM.weatherEmoji.textContent     = d.emoji          || '☀️';
+    if (DOM.weatherEmoji)     DOM.weatherEmoji.textContent     = d.emoji || '☀️';
     if (DOM.weatherTemp)      DOM.weatherTemp.textContent      = d.temperature + '°';
-    if (DOM.weatherCondition) DOM.weatherCondition.textContent = d.condition_text  || 'Sunny & Clear';
+    if (DOM.weatherCondition) DOM.weatherCondition.textContent = d.condition_text || 'Sunny & Clear';
     if (DOM.weatherCity)      DOM.weatherCity.textContent      = d.city + (d.country ? ', ' + d.country : '');
     if (DOM.weatherHumidity)  DOM.weatherHumidity.textContent  = d.humidity + '%';
     if (DOM.weatherWind)      DOM.weatherWind.textContent      = d.wind_speed + ' km/h';
-    if (DOM.weatherUV)        DOM.weatherUV.textContent        = d.uv_index        || 'High';
+    if (DOM.weatherUV)        DOM.weatherUV.textContent        = d.uv_index || 'High';
+}
+
+// الجديد: تحديث الاقتراحات حسب الطقس الحالي
+async function updateSuggestedByWeather() {
+    if (!currentWeatherData) return;
+
+    const wardrobeResult = await API.getClothing();
+    if (!wardrobeResult.success) {
+        renderSuggested([]);
+        showToast('Could not load wardrobe items.', false);
+        return;
+    }
+
+    const allItems = wardrobeResult.items || [];
+
+    const suggestResult = await API.suggestOutfit(currentWeatherData, allItems);
+    if (!suggestResult.success) {
+        renderSuggested([]);
+        showToast('Could not generate outfit suggestions.', false);
+        return;
+    }
+
+    const suggestedSeasons = suggestResult.recommendation?.suggested_seasons || [];
+
+    const filteredItems = allItems.filter(item =>
+        suggestedSeasons.includes(item.season)
+    );
+
+    renderSuggested(filteredItems);
+
+    if (suggestResult.recommendation?.message) {
+        showToast(suggestResult.recommendation.message, true);
+    }
 }
 
 // ── Suggested Outfits ─────────────────────────────────────────────────────────
@@ -159,23 +218,48 @@ async function loadSuggestedOutfits() {
         DOM.suggestedCount.textContent = items.length + ' item' + (items.length !== 1 ? 's' : '');
     }
 
-    // Always render exactly 4 slots: real cards + skeleton placeholders
     const slots = 4;
     let html = '';
+
     items.slice(0, slots).forEach(item => {
         html += buildSuggestedCard(item);
     });
+
     for (let i = items.length; i < slots; i++) {
         html += buildSkeletonCard();
     }
-    grid.innerHTML = html;
 
+    grid.innerHTML = html;
+    attachCardActions(grid, true);
+}
+
+// الجديد: رسم الاقتراحات الديناميكية
+function renderSuggested(items) {
+    const grid = DOM.suggestedGrid;
+    if (!grid) return;
+
+    if (DOM.suggestedCount) {
+        DOM.suggestedCount.textContent = items.length + ' item' + (items.length !== 1 ? 's' : '');
+    }
+
+    const slots = 4;
+    let html = '';
+
+    items.slice(0, slots).forEach(item => {
+        html += buildSuggestedCard(item);
+    });
+
+    for (let i = items.length; i < slots; i++) {
+        html += buildSkeletonCard();
+    }
+
+    grid.innerHTML = html;
     attachCardActions(grid, true);
 }
 
 function buildSuggestedCard(item) {
-    const badgeClass  = SEASON_BADGE[item.season]  || 'text-gray-700 bg-gray-50';
-    const seasonEmoji = SEASON_EMOJI[item.season]  || '';
+    const badgeClass  = SEASON_BADGE[item.season] || 'text-gray-700 bg-gray-50';
+    const seasonEmoji = SEASON_EMOJI[item.season] || '';
     const imgContent  = item.image_path
         ? `<img src="${escapeHtml(item.image_path)}" alt="${escapeHtml(item.name)}" class="w-full h-full object-cover"/>`
         : `<div class="h-36 bg-gradient-to-br ${escapeHtml(item.gradient_from)} ${escapeHtml(item.gradient_to)} flex items-center justify-center text-5xl select-none">${escapeHtml(item.emoji)}</div>`;
@@ -227,7 +311,6 @@ async function loadWardrobe(season = null) {
     }
 
     let html = items.map(item => buildWardrobeCard(item)).join('');
-    // Always append the "No more outfits" placeholder at the end
     html += buildEmptyStatePlaceholderCard();
     grid.innerHTML = html;
 
@@ -235,8 +318,8 @@ async function loadWardrobe(season = null) {
 }
 
 function buildWardrobeCard(item) {
-    const badgeClass  = SEASON_BADGE[item.season]  || 'text-gray-700 bg-gray-50';
-    const seasonEmoji = SEASON_EMOJI[item.season]  || '';
+    const badgeClass  = SEASON_BADGE[item.season] || 'text-gray-700 bg-gray-50';
+    const seasonEmoji = SEASON_EMOJI[item.season] || '';
     const imgContent  = item.image_path
         ? `<img src="${escapeHtml(item.image_path)}" alt="${escapeHtml(item.name)}" class="w-full h-full object-cover"/>`
         : `<div class="h-44 bg-gradient-to-br ${escapeHtml(item.gradient_from)} ${escapeHtml(item.gradient_to)} flex items-center justify-center text-6xl select-none">${escapeHtml(item.emoji)}</div>`;
@@ -300,10 +383,10 @@ function attachCardActions(grid, isSuggested) {
 
 // ── Add Item ──────────────────────────────────────────────────────────────────
 async function handleAddItem() {
-    const name        = DOM.itemNameInput?.value.trim()   || '';
-    const category    = DOM.categorySelect?.value          || '';
-    const season      = DOM.seasonSelect?.value            || '';
-    const file        = DOM.photoInput?.files[0]           || null;
+    const name        = DOM.itemNameInput?.value.trim() || '';
+    const category    = DOM.categorySelect?.value || '';
+    const season      = DOM.seasonSelect?.value || '';
+    const file        = DOM.photoInput?.files[0] || null;
 
     if (!name) {
         showToast('Please enter an item name.', false);
@@ -321,12 +404,12 @@ async function handleAddItem() {
     let imagePath = null;
 
     if (file) {
-        // Validate file
         if (file.size > 8 * 1024 * 1024) {
             showToast('File too large. Maximum 8MB.', false);
             return;
         }
-        if (!['image/jpeg','image/png','image/gif','image/webp'].includes(file.type)) {
+
+        if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(file.type)) {
             showToast('Invalid file type. Only PNG, JPG, WEBP allowed.', false);
             return;
         }
@@ -336,6 +419,7 @@ async function handleAddItem() {
             showToast(uploadResult.message, false);
             return;
         }
+
         imagePath = uploadResult.path;
     }
 
@@ -343,14 +427,15 @@ async function handleAddItem() {
 
     if (result.success) {
         showToast('Item added to wardrobe! ✦', true);
-        // Reset form
-        if (DOM.itemNameInput)  DOM.itemNameInput.value  = '';
+
+        if (DOM.itemNameInput)  DOM.itemNameInput.value = '';
         if (DOM.categorySelect) DOM.categorySelect.value = '';
-        if (DOM.seasonSelect)   DOM.seasonSelect.value   = '';
-        if (DOM.photoInput)     DOM.photoInput.value     = '';
+        if (DOM.seasonSelect)   DOM.seasonSelect.value = '';
+        if (DOM.photoInput)     DOM.photoInput.value = '';
         if (DOM.photoLabel)     DOM.photoLabel.textContent = 'Click to upload';
 
         await loadWardrobe(currentFilter === 'all' ? null : currentFilter);
+        await updateSuggestedByWeather();
     } else {
         showToast(result.message, false);
     }
@@ -361,10 +446,11 @@ async function handleDelete(id) {
     if (!confirm('Delete this item?')) return;
 
     const result = await API.deleteClothing(id);
+
     if (result.success) {
         showToast('Item removed.', true);
-        await loadSuggestedOutfits();
         await loadWardrobe(currentFilter === 'all' ? null : currentFilter);
+        await updateSuggestedByWeather();
     } else {
         showToast(result.message, false);
     }
@@ -372,15 +458,15 @@ async function handleDelete(id) {
 
 // ── Edit Modal ────────────────────────────────────────────────────────────────
 async function openEditModal(id) {
-    // Fetch the item data from wardrobe
     const result = await API.getClothing();
     const item   = result.items?.find(i => i.id == id);
     if (!item) return;
 
     editingId = id;
-    if (DOM.editNameInput) DOM.editNameInput.value  = item.name;
-    if (DOM.editCategory)  DOM.editCategory.value   = item.category;
-    if (DOM.editSeason)    DOM.editSeason.value      = item.season;
+
+    if (DOM.editNameInput) DOM.editNameInput.value = item.name;
+    if (DOM.editCategory)  DOM.editCategory.value  = item.category;
+    if (DOM.editSeason)    DOM.editSeason.value    = item.season;
 
     DOM.editModal.classList.remove('hidden');
     DOM.editModal.style.display = 'flex';
@@ -398,58 +484,63 @@ async function handleEditSave() {
     if (!editingId) return;
 
     const name     = DOM.editNameInput?.value.trim() || '';
-    const category = DOM.editCategory?.value          || '';
-    const season   = DOM.editSeason?.value             || '';
+    const category = DOM.editCategory?.value || '';
+    const season   = DOM.editSeason?.value || '';
 
-    if (!name || !category || !season) {
-        showToast('Please fill in all fields.', false);
+    if (!name) {
+        showToast('Please enter an item name.', false);
+        return;
+    }
+    if (!category) {
+        showToast('Please select a category.', false);
+        return;
+    }
+    if (!season) {
+        showToast('Please select a season.', false);
         return;
     }
 
     const result = await API.updateClothing(editingId, name, category, season);
+
     if (result.success) {
-        showToast('Item updated! ✦', true);
+        showToast('Item updated.', true);
         closeEditModal();
-        await loadSuggestedOutfits();
         await loadWardrobe(currentFilter === 'all' ? null : currentFilter);
+        await updateSuggestedByWeather();
     } else {
         showToast(result.message, false);
     }
 }
 
-// ── Toast notification ────────────────────────────────────────────────────────
+// ── Toast ─────────────────────────────────────────────────────────────────────
 function showToast(message, success = true) {
-    let toast = document.getElementById('appToast');
-    if (!toast) {
-        toast = document.createElement('div');
-        toast.id = 'appToast';
-        toast.style.cssText = `
-            position:fixed; bottom:2rem; right:2rem; z-index:9999;
-            padding:.75rem 1.25rem; border-radius:1rem;
-            font-size:.875rem; font-weight:600;
-            box-shadow:0 8px 32px rgba(0,0,0,.15);
-            transition: opacity .3s ease, transform .3s ease;
-        `;
-        document.body.appendChild(toast);
-    }
+    const toast = document.createElement('div');
+    toast.textContent = message;
+    toast.className = `
+        fixed bottom-5 right-5 z-[9999]
+        px-4 py-3 rounded-xl shadow-lg text-white text-sm font-medium
+        ${success ? 'bg-emerald-500' : 'bg-rose-500'}
+        opacity-0 translate-y-3 transition-all duration-300
+    `;
 
-    toast.textContent        = message;
-    toast.style.background   = success ? '#10b981' : '#ef4444';
-    toast.style.color        = '#fff';
-    toast.style.opacity      = '1';
-    toast.style.transform    = 'translateY(0)';
+    document.body.appendChild(toast);
 
-    clearTimeout(toast._timer);
-    toast._timer = setTimeout(() => {
-        toast.style.opacity   = '0';
-        toast.style.transform = 'translateY(1rem)';
-    }, 3000);
+    requestAnimationFrame(() => {
+        toast.classList.remove('opacity-0', 'translate-y-3');
+    });
+
+    setTimeout(() => {
+        toast.classList.add('opacity-0', 'translate-y-3');
+        setTimeout(() => toast.remove(), 300);
+    }, 2200);
 }
 
-// ── Utilities ─────────────────────────────────────────────────────────────────
-function escapeHtml(text) {
-    if (text == null) return '';
-    const div = document.createElement('div');
-    div.textContent = String(text);
-    return div.innerHTML;
+// ── Utils ─────────────────────────────────────────────────────────────────────
+function escapeHtml(str) {
+    return String(str ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
 }
