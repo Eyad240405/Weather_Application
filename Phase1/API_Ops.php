@@ -7,9 +7,8 @@ require_once 'config.php';
 
 class WeatherAPI {
     private $api_key  = '';
-    private $base_url = 'https://api.openweathermap.org/data/2.5/weather';
-    private $city     = 'Cairo';   // Default matches HTML
-    private $units    = 'metric';
+    private $base_url = 'http://api.weatherapi.com/v1/current.json';
+    private $city     = 'Cairo';
 
     public function __construct($city = 'Cairo') {
         $this->city    = $city;
@@ -17,14 +16,14 @@ class WeatherAPI {
     }
 
     /**
-     * Fetch weather data using CURL.
+     * Fetch weather data using CURL from WeatherAPI.com
      * Falls back to the HTML-matching default when no API key is configured.
      */
     public function getWeather() {
         if (empty($this->api_key)) {
             return [
                 'success'  => false,
-                'message'  => 'Weather API not configured. Showing default data.',
+                'message'  => 'No API key configured.',
                 'fallback' => true,
                 'data'     => $this->getFallbackWeather()
             ];
@@ -32,49 +31,61 @@ class WeatherAPI {
 
         try {
             $url = $this->base_url
-                 . '?q='     . urlencode($this->city)
-                 . '&units=' . $this->units
-                 . '&appid=' . $this->api_key;
+                 . '?key=' . urlencode($this->api_key)
+                 . '&q='   . urlencode($this->city)
+                 . '&aqi=no';
 
             $ch = curl_init();
-            curl_setopt($ch, CURLOPT_URL,            $url);
+            curl_setopt($ch, CURLOPT_URL, $url);
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_TIMEOUT,        10);
-            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 10);
 
-            $response  = curl_exec($ch);
-            $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            curl_close($ch);
+            $response = curl_exec($ch);
 
-            if ($http_code !== 200) {
+            if ($response === false) {
+                $curlError = curl_error($ch);
+                curl_close($ch);
+
                 return [
                     'success'  => false,
-                    'message'  => 'Failed to fetch weather data (HTTP ' . $http_code . ')',
+                    'message'  => 'cURL error: ' . $curlError,
                     'fallback' => true,
                     'data'     => $this->getFallbackWeather()
                 ];
             }
 
+            $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+
             $data = json_decode($response, true);
 
-            // Build condition text and emoji
-            $condition = $data['weather'][0]['main'];
-            $desc      = ucfirst($data['weather'][0]['description']);
-            $emoji     = $this->conditionToEmoji($condition, $data['weather'][0]['icon']);
-            $uvIndex   = $this->tempToUvIndex($data['main']['temp']);
+            if ($http_code !== 200 || !isset($data['current']) || !isset($data['location'])) {
+                $apiMessage = $data['error']['message'] ?? ('Failed to fetch weather data (HTTP ' . $http_code . ')');
+
+                return [
+                    'success'  => false,
+                    'message'  => $apiMessage,
+                    'fallback' => true,
+                    'data'     => $this->getFallbackWeather()
+                ];
+            }
+
+            $conditionText = $data['current']['condition']['text'] ?? 'Clear';
+            $emoji         = $this->conditionToEmoji($conditionText);
+            $uvIndex       = $this->uvNumberToText($data['current']['uv'] ?? 0);
 
             return [
                 'success' => true,
                 'data' => [
-                    'city'           => $data['name'],
-                    'country'        => $data['sys']['country'] ?? '',
-                    'temperature'    => (int) round($data['main']['temp']),
-                    'condition_text' => $condition . ' & ' . $desc,
+                    'city'           => $data['location']['name'] ?? $this->city,
+                    'country'        => $data['location']['country'] ?? '',
+                    'temperature'    => (int) round($data['current']['temp_c'] ?? 0),
+                    'condition_text' => $conditionText,
                     'emoji'          => $emoji,
-                    'humidity'       => (int) $data['main']['humidity'],
-                    'wind_speed'     => (int) round($data['wind']['speed'] * 3.6), // m/s → km/h
+                    'humidity'       => (int) ($data['current']['humidity'] ?? 0),
+                    'wind_speed'     => (int) round($data['current']['wind_kph'] ?? 0),
                     'uv_index'       => $uvIndex,
-                    'icon'           => $data['weather'][0]['icon'],
+                    'icon'           => $data['current']['condition']['icon'] ?? '',
                 ]
             ];
         } catch (Exception $e) {
@@ -88,42 +99,45 @@ class WeatherAPI {
     }
 
     /**
-     * Fallback weather — matches the HTML exactly:
-     * 28°, Sunny & Clear, Cairo Egypt, 42% humidity, 14 km/h wind, UV High
+     * Fallback weather — matches the HTML exactly
      */
     private function getFallbackWeather() {
         return DEFAULT_WEATHER;
     }
 
-    private function conditionToEmoji($condition, $icon = '') {
-        $map = [
-            'Clear'       => '☀️',
-            'Clouds'      => '⛅',
-            'Rain'        => '🌧️',
-            'Drizzle'     => '🌦️',
-            'Thunderstorm'=> '⛈️',
-            'Snow'        => '❄️',
-            'Mist'        => '🌫️',
-            'Fog'         => '🌫️',
-            'Haze'        => '🌫️',
-            'Dust'        => '🌪️',
-            'Sand'        => '🌪️',
-            'Tornado'     => '🌪️',
-        ];
-        // Night icons
-        if (str_ends_with($icon, 'n') && $condition === 'Clear') return '🌙';
-        return $map[$condition] ?? '🌡️';
+    /**
+     * Convert WeatherAPI text condition into emoji
+     */
+    private function conditionToEmoji($conditionText) {
+        $condition = strtolower($conditionText);
+
+        if (str_contains($condition, 'sun') || str_contains($condition, 'clear')) return '☀️';
+        if (str_contains($condition, 'cloud') || str_contains($condition, 'overcast')) return '⛅';
+        if (str_contains($condition, 'rain')) return '🌧️';
+        if (str_contains($condition, 'drizzle')) return '🌦️';
+        if (str_contains($condition, 'thunder')) return '⛈️';
+        if (str_contains($condition, 'snow') || str_contains($condition, 'sleet') || str_contains($condition, 'ice')) return '❄️';
+        if (str_contains($condition, 'mist') || str_contains($condition, 'fog') || str_contains($condition, 'haze')) return '🌫️';
+        if (str_contains($condition, 'wind')) return '🌬️';
+
+        return '🌡️';
     }
 
-    private function tempToUvIndex($temp) {
-        if ($temp >= 30) return 'Very High';
-        if ($temp >= 25) return 'High';
-        if ($temp >= 18) return 'Moderate';
+    /**
+     * Convert numeric UV to text
+     */
+    private function uvNumberToText($uv) {
+        $uv = (float) $uv;
+
+        if ($uv >= 11) return 'Extreme';
+        if ($uv >= 8)  return 'Very High';
+        if ($uv >= 6)  return 'High';
+        if ($uv >= 3)  return 'Moderate';
         return 'Low';
     }
 
     /**
-     * Suggest outfit based on weather and available clothing.
+     * Suggest outfit based on weather and available clothing
      */
     public function suggestOutfit($weather_data, $available_clothing) {
         $temp      = $weather_data['temperature'];
@@ -154,10 +168,10 @@ class WeatherAPI {
         return [
             'success' => true,
             'recommendation' => [
-                'temperature'    => $temp,
-                'condition'      => $weather_data['condition_text'] ?? '',
+                'temperature'       => $temp,
+                'condition'         => $weather_data['condition_text'] ?? '',
                 'suggested_seasons' => $suggested_seasons,
-                'message'        => $message,
+                'message'           => $message,
             ]
         ];
     }
@@ -184,8 +198,14 @@ if ($action === 'getWeather') {
         $db = new Database();
         $d  = $result['data'];
         $db->updateWeatherData(
-            $d['city'], $d['country'], $d['temperature'], $d['condition_text'],
-            $d['emoji'], $d['humidity'], $d['wind_speed'], $d['uv_index']
+            $d['city'],
+            $d['country'],
+            $d['temperature'],
+            $d['condition_text'],
+            $d['emoji'],
+            $d['humidity'],
+            $d['wind_speed'],
+            $d['uv_index']
         );
     }
 
