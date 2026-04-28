@@ -2,12 +2,12 @@
 error_reporting(0);
 ini_set('display_errors', 0);
 
-define('DB_HOST',     'sql101.infinityfree.com');
-define('DB_NAME',     'if0_41744441_outfit_planner');
-define('DB_USER',     'if0_41744441');
-define('DB_PASSWORD', '7gDE0TPpV59MDtV');
+define('DB_HOST',     '');
+define('DB_NAME',     '');
+define('DB_USER',     '');
+define('DB_PASSWORD', '');
 
-define('WEATHER_API_KEY', 'caa146fbf1074732bc9101147262004'); // OpenWeatherMap key (optional)
+define('WEATHER_API_KEY', '');
 
 
 
